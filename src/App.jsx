@@ -1,9 +1,37 @@
 import { useState, useEffect, useRef, createContext, useContext } from "react";
 
-// ===================== STORAGE =====================
+// ===================== STORAGE (Google Sheets backend) =====================
+const GAS_URL = "https://script.google.com/macros/s/AKfycbwuVnf-OA_Eed4jOrFIXbBqYysAEuYcaBD8RvDjP_xSXumn4Qd9aW1LKY9po1xWqK58/exec";
+
+// Local cache so the UI stays fast
+const _cache = {};
+
 const storage = {
-  get: async (key) => { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch { return null; } },
-  set: async (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} },
+  get: async (key) => {
+    if (_cache[key] !== undefined) return _cache[key];
+    try {
+      const res = await fetch(`${GAS_URL}?action=get&key=${encodeURIComponent(key)}`);
+      const json = await res.json();
+      const value = json.value ? JSON.parse(json.value) : null;
+      _cache[key] = value;
+      return value;
+    } catch {
+      // Fallback to localStorage if offline
+      try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch { return null; }
+    }
+  },
+  set: async (key, val) => {
+    _cache[key] = val;
+    // Write to localStorage immediately (instant)
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+    // Write to Google Sheets in background
+    try {
+      await fetch(GAS_URL, {
+        method: "POST",
+        body: JSON.stringify({ action: "set", key, value: JSON.stringify(val) }),
+      });
+    } catch {}
+  },
 };
 
 // ===================== THEME =====================
