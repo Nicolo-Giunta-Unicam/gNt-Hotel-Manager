@@ -629,25 +629,58 @@ function WorkerDetail({ worker, onClose, onUpdate }) {
     await onUpdate({...worker, contracts:updated});
   };
 
-  // --- Docs ---
-  const submitDoc = async () => {
-    if (!dForm.name||!dForm.url) return;
-    // Convert Google Drive share URL to direct/embed URL
-    const url = normalizeDriveUrl(dForm.url);
-    let updated;
-    if (editDoc) {
-      updated = docs.map(d=>d.id===editDoc.id?{...d,...dForm,url}:d);
-    } else {
-      updated = [...docs, {...dForm, url, id:Date.now().toString(), addedAt:new Date().toISOString()}];
+  // --- Drive folder ---
+  // Worker stores: { driveUrl, driveFolderId, driveLabel }
+  const driveFolder = worker.driveFolder || null;
+  const [folderForm, setFolderForm] = useState({ url: driveFolder?.url||"", label: driveFolder?.label||"" });
+  const [editingFolder, setEditingFolder] = useState(!driveFolder);
+  const [folderFiles, setFolderFiles] = useState(null);  // null=not loaded, []|[...]=loaded
+  const [folderLoading, setFolderLoading] = useState(false);
+  const [folderError, setFolderError] = useState("");
+
+  const saveDriveFolder = async () => {
+    if (!folderForm.url) return;
+    const folderId = extractDriveFolderId(folderForm.url);
+    if (!folderId) { setFolderError("URL non riconosciuto. Controlla il link della cartella Drive."); return; }
+    const updated = { url: folderForm.url, folderId, label: folderForm.label || "Documenti" };
+    await onUpdate({...worker, driveFolder: updated});
+    setEditingFolder(false);
+    setFolderError("");
+    setFolderFiles(null); // reset so it reloads
+  };
+
+  const loadFolder = async (fid) => {
+    setFolderLoading(true); setFolderError(""); setFolderFiles(null);
+    try {
+      const GAS = "https://script.google.com/macros/s/AKfycbwuVnf-OA_Eed4jOrFIXbBqYysAEuYcaBD8RvDjP_xSXumn4Qd9aW1LKY9po1xWqK58/exec";
+      const res = await fetch(`${GAS}?action=listFolder&folderId=${encodeURIComponent(fid)}`);
+      const data = await res.json();
+      if (data.error) { setFolderError("Errore: " + data.error); setFolderFiles([]); }
+      else setFolderFiles(data.files||[]);
+    } catch(e) {
+      setFolderError("Impossibile contattare il server. Controlla la connessione.");
+      setFolderFiles([]);
     }
-    await onUpdate({...worker, docs:updated});
-    setDForm(blankD); setShowDocForm(false); setEditDoc(null);
+    setFolderLoading(false);
   };
-  const removeDoc = async id => {
-    if (!await confirmDel("Rimuovere questo documento?")) return;
-    await onUpdate({...worker, docs:docs.filter(d=>d.id!==id)});
+
+  const MIME_ICON = mime => {
+    if (!mime) return "📎";
+    if (mime.includes("pdf")) return "📄";
+    if (mime.includes("image")) return "🖼";
+    if (mime.includes("word") || mime.includes("document")) return "📝";
+    if (mime.includes("spreadsheet") || mime.includes("excel")) return "📊";
+    if (mime.includes("presentation") || mime.includes("powerpoint")) return "📑";
+    if (mime.includes("folder")) return "📁";
+    return "📎";
   };
-  const openEditD = d => { setDForm({name:d.name,url:d.url,type:d.type||"pdf",notes:d.notes||""}); setEditDoc(d); setShowDocForm(true); };
+
+  const fmtSize = bytes => {
+    if (!bytes) return "";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024*1024) return `${(bytes/1024).toFixed(0)} KB`;
+    return `${(bytes/(1024*1024)).toFixed(1)} MB`;
+  };
 
   const DOC_TYPES = ["pdf","immagine","word","altro"];
   const DOC_ICONS = {pdf:"📄",immagine:"🖼",word:"📝",altro:"📎"};
@@ -656,7 +689,7 @@ function WorkerDetail({ worker, onClose, onUpdate }) {
     <Modal title={`👤 ${worker.name} ${worker.surname}${worker.nickname?` "${worker.nickname}"`:""}` } onClose={onClose} wide>
       {/* Sub-tabs */}
       <div style={{display:"flex",gap:"0.35rem",marginBottom:"1rem",borderBottom:`1px solid ${t.border}`,paddingBottom:"0.65rem"}}>
-        {[{v:"contratti",l:"📋 Storico Contratti"},{v:"documenti",l:"📁 Documenti"}].map(tb=>(
+        {[{v:"contratti",l:"📋 Storico Contratti"},{v:"documenti",l:"📁 Documenti Drive"}].map(tb=>(
           <button key={tb.v} type="button" onClick={()=>setTab(tb.v)}
             style={{padding:"0.38rem 0.85rem",border:"none",borderRadius:"0.4rem",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:"0.82rem",fontWeight:tab===tb.v?700:400,background:tab===tb.v?t.accent:"none",color:tab===tb.v?t.accentText:t.text3}}>
             {tb.l}
@@ -720,97 +753,94 @@ function WorkerDetail({ worker, onClose, onUpdate }) {
         </div>
       )}
 
-      {/* ---- DOCUMENTI ---- */}
+      {/* ---- DOCUMENTI DRIVE ---- */}
       {tab==="documenti"&&(
         <div>
-          {/* Guide */}
-          <div style={{background:t.blueBg,border:`1px solid ${t.blue}33`,borderRadius:"0.65rem",padding:"0.8rem 1rem",marginBottom:"0.85rem",fontSize:"0.78rem",color:t.text2}}>
-            <div style={{fontWeight:700,color:t.blue,marginBottom:"0.4rem"}}>📖 Come aggiungere documenti da Google Drive</div>
-            <ol style={{margin:0,paddingLeft:"1.2rem",lineHeight:1.9}}>
-              <li>Apri <strong>Google Drive</strong> e carica il documento (PDF, immagine, Word…)</li>
-              <li>Tasto destro sul file → <strong>"Ottieni link"</strong></li>
-              <li>Imposta accesso su <strong>"Chiunque abbia il link"</strong> → copia il link</li>
-              <li>Incolla il link qui sotto — il sistema lo converte automaticamente per la visualizzazione</li>
-            </ol>
-            <div style={{marginTop:"0.5rem",color:t.text3,fontSize:"0.72rem"}}>💡 I documenti rimangono sul tuo Google Drive. Il gestionale salva solo il link.</div>
-          </div>
-
-          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:"0.65rem"}}>
-            <Btn onClick={()=>{setDForm(blankD);setEditDoc(null);setShowDocForm(true);}}>+ Aggiungi documento</Btn>
-          </div>
-
-          {showDocForm&&(
-            <div style={{background:t.bg3,border:`1px solid ${t.border2}`,borderRadius:"0.65rem",padding:"0.9rem",marginBottom:"0.75rem"}}>
-              <div style={{color:t.accent,fontWeight:700,fontSize:"0.85rem",marginBottom:"0.65rem"}}>{editDoc?"✏️ Modifica documento":"➕ Aggiungi documento"}</div>
+          {/* Setup cartella */}
+          {(editingFolder || !driveFolder) ? (
+            <div>
+              {/* Guida */}
+              <div style={{background:t.blueBg,border:`1px solid ${t.blue}33`,borderRadius:"0.65rem",padding:"0.8rem 1rem",marginBottom:"0.85rem",fontSize:"0.78rem",color:t.text2}}>
+                <div style={{fontWeight:700,color:t.blue,marginBottom:"0.5rem"}}>📖 Come collegare una cartella Google Drive</div>
+                <ol style={{margin:0,paddingLeft:"1.2rem",lineHeight:2}}>
+                  <li>Vai su <strong>Google Drive</strong> e crea una cartella per questo lavoratore (es. "Mario Rossi")</li>
+                  <li>Carica dentro i documenti: contratti, carta d'identità, permessi, ecc.</li>
+                  <li>Tasto destro sulla <strong>cartella</strong> → <strong>"Condividi"</strong> → <strong>"Chiunque abbia il link"</strong> → copia il link</li>
+                  <li>Incolla il link qui sotto e salva</li>
+                </ol>
+                <div style={{marginTop:"0.55rem",color:t.text3,fontSize:"0.72rem"}}>💡 Puoi aggiungere nuovi file direttamente su Drive — si aggiorneranno automaticamente nel gestionale.</div>
+              </div>
               <FGrid>
-                <div><Lbl>Nome documento *</Lbl><Inp placeholder="es. Contratto 2024, CdI Mario Rossi" value={dForm.name} onChange={e=>setDForm({...dForm,name:e.target.value})}/></div>
-                <div><Lbl>Tipo</Lbl>
-                  <Sel value={dForm.type} onChange={e=>setDForm({...dForm,type:e.target.value})}>
-                    {DOC_TYPES.map(dt=><option key={dt} value={dt}>{DOC_ICONS[dt]} {dt}</option>)}
-                  </Sel>
+                <div>
+                  <Lbl>Link cartella Google Drive *</Lbl>
+                  <Inp placeholder="https://drive.google.com/drive/folders/..." value={folderForm.url} onChange={e=>setFolderForm({...folderForm,url:e.target.value})}/>
+                </div>
+                <div>
+                  <Lbl>Etichetta (opz.)</Lbl>
+                  <Inp placeholder="es. Documenti Mario Rossi" value={folderForm.label} onChange={e=>setFolderForm({...folderForm,label:e.target.value})}/>
                 </div>
               </FGrid>
-              <div style={{marginTop:"0.5rem"}}><Lbl>Link Google Drive *</Lbl>
-                <Inp placeholder="https://drive.google.com/file/d/..." value={dForm.url} onChange={e=>setDForm({...dForm,url:e.target.value})}/>
-              </div>
-              <div style={{marginTop:"0.5rem"}}><Lbl>Note (opz.)</Lbl><Inp textarea style={{height:"2.8rem"}} value={dForm.notes} onChange={e=>setDForm({...dForm,notes:e.target.value})}/></div>
+              {folderError&&<p style={{color:t.red,fontSize:"0.78rem",margin:"0.4rem 0 0"}}>{folderError}</p>}
               <div style={{display:"flex",gap:"0.4rem",marginTop:"0.65rem"}}>
-                <Btn onClick={submitDoc}>{editDoc?"Aggiorna":"Salva"}</Btn>
-                <Btn variant="secondary" onClick={()=>{setShowDocForm(false);setEditDoc(null);}}>Annulla</Btn>
+                <Btn onClick={saveDriveFolder}>Salva cartella</Btn>
+                {driveFolder&&<Btn variant="secondary" onClick={()=>{setEditingFolder(false);setFolderError("");}}>Annulla</Btn>}
               </div>
             </div>
-          )}
-
-          {docs.length===0&&<Empty msg="Nessun documento. Aggiungi un link da Google Drive."/>}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(15rem,1fr))",gap:"0.55rem"}}>
-            {docs.map(d=>(
-              <div key={d.id} style={{background:t.bg2,border:`1px solid ${t.border}`,borderRadius:"0.6rem",padding:"0.75rem 0.9rem"}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:"0.4rem"}}>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{display:"flex",gap:"0.35rem",alignItems:"center",marginBottom:"0.25rem"}}>
-                      <span style={{fontSize:"1.1rem"}}>{DOC_ICONS[d.type]||"📎"}</span>
-                      <span style={{color:t.text,fontWeight:700,fontSize:"0.85rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.name}</span>
-                    </div>
-                    {d.notes&&<div style={{color:t.text4,fontSize:"0.7rem",marginBottom:"0.3rem",fontStyle:"italic"}}>{d.notes}</div>}
-                    {d.addedAt&&<div style={{color:t.text4,fontSize:"0.65rem"}}>Aggiunto {new Date(d.addedAt).toLocaleDateString("it")}</div>}
-                  </div>
-                  <div style={{display:"flex",flexDirection:"column",gap:"0.22rem",flexShrink:0}}>
-                    <IconBtn onClick={()=>openEditD(d)} icon="✏️" color={t.blue} title="Modifica"/>
-                    <IconBtn onClick={()=>removeDoc(d.id)} icon="🗑" color={t.red} title="Rimuovi"/>
-                  </div>
+          ) : (
+            <div>
+              {/* Cartella collegata */}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:t.bg3,border:`1px solid ${t.border}`,borderRadius:"0.65rem",padding:"0.75rem 1rem",marginBottom:"0.85rem"}}>
+                <div>
+                  <div style={{color:t.text,fontWeight:700,fontSize:"0.9rem"}}>📁 {driveFolder.label||"Documenti"}</div>
+                  <div style={{color:t.text4,fontSize:"0.7rem",marginTop:"0.15rem",wordBreak:"break-all"}}>{driveFolder.url}</div>
                 </div>
-                <div style={{display:"flex",gap:"0.35rem",marginTop:"0.55rem"}}>
-                  <button type="button" onClick={()=>setViewDoc(d)}
-                    style={{flex:1,padding:"0.32rem 0.5rem",background:t.accent,border:"none",borderRadius:"0.35rem",color:t.accentText,fontWeight:700,fontSize:"0.72rem",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
-                    👁 Visualizza
-                  </button>
-                  <a href={d.url} target="_blank" rel="noopener noreferrer"
-                    style={{flex:1,padding:"0.32rem 0.5rem",background:"none",border:`1px solid ${t.border2}`,borderRadius:"0.35rem",color:t.text3,fontWeight:600,fontSize:"0.72rem",cursor:"pointer",textDecoration:"none",textAlign:"center",display:"block"}}>
-                    ↗ Apri
+                <div style={{display:"flex",gap:"0.35rem",flexShrink:0,marginLeft:"0.75rem"}}>
+                  <a href={driveFolder.url} target="_blank" rel="noopener noreferrer"
+                    style={{padding:"0.32rem 0.65rem",background:"none",border:`1px solid ${t.border2}`,borderRadius:"0.35rem",color:t.text3,fontSize:"0.75rem",textDecoration:"none",whiteSpace:"nowrap"}}>
+                    ↗ Apri in Drive
                   </a>
+                  <Btn onClick={()=>loadFolder(driveFolder.folderId)} style={{fontSize:"0.75rem",padding:"0.32rem 0.65rem"}}>
+                    {folderLoading?"⏳ Carico...":"🔄 Carica file"}
+                  </Btn>
+                  <IconBtn onClick={()=>{setEditingFolder(true);setFolderForm({url:driveFolder.url,label:driveFolder.label||""});}} icon="✏️" color={t.blue} title="Cambia cartella"/>
                 </div>
               </div>
-            ))}
-          </div>
 
-          {/* Doc viewer */}
-          {viewDoc&&(
-            <div style={{position:"fixed",inset:0,background:t.overlay,zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:"1rem"}}>
-              <div style={{background:t.bg2,border:`1px solid ${t.border2}`,borderRadius:"1rem",width:"100%",maxWidth:"56rem",maxHeight:"92vh",display:"flex",flexDirection:"column",boxShadow:"0 24px 64px rgba(0,0,0,0.6)"}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0.75rem 1rem",borderBottom:`1px solid ${t.border}`,flexShrink:0}}>
-                  <span style={{color:t.accent,fontWeight:700,fontSize:"0.95rem"}}>{DOC_ICONS[viewDoc.type]||"📎"} {viewDoc.name}</span>
-                  <div style={{display:"flex",gap:"0.5rem"}}>
-                    <a href={viewDoc.url} target="_blank" rel="noopener noreferrer"
-                      style={{padding:"0.38rem 0.75rem",background:"none",border:`1px solid ${t.border2}`,borderRadius:"0.4rem",color:t.text3,fontSize:"0.78rem",textDecoration:"none"}}>
-                      ↗ Apri in Drive
-                    </a>
-                    <button type="button" onClick={()=>setViewDoc(null)} style={{background:"none",border:"none",color:t.text3,fontSize:"1.2rem",cursor:"pointer",lineHeight:1}}>✕</button>
+              {/* File list */}
+              {folderError&&<div style={{color:t.red,fontSize:"0.8rem",padding:"0.5rem",background:t.redBg,borderRadius:"0.45rem",marginBottom:"0.65rem"}}>{folderError}</div>}
+              {folderLoading&&<div style={{textAlign:"center",color:t.text3,padding:"2rem",fontSize:"0.85rem"}}>⏳ Caricamento file in corso...</div>}
+              {folderFiles===null&&!folderLoading&&(
+                <div style={{textAlign:"center",color:t.text4,padding:"2rem",fontSize:"0.85rem"}}>
+                  Clicca <strong style={{color:t.accent}}>Carica file</strong> per vedere i documenti nella cartella Drive
+                </div>
+              )}
+              {folderFiles!==null&&!folderLoading&&folderFiles.length===0&&(
+                <Empty msg="La cartella è vuota. Carica i documenti direttamente su Google Drive."/>
+              )}
+              {folderFiles!==null&&folderFiles.length>0&&(
+                <div>
+                  <div style={{color:t.text3,fontSize:"0.72rem",marginBottom:"0.55rem"}}>{folderFiles.length} file nella cartella</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:"0.4rem"}}>
+                    {folderFiles.map(f=>(
+                      <div key={f.id} style={{background:t.bg2,border:`1px solid ${t.border}`,borderRadius:"0.55rem",padding:"0.6rem 0.85rem",display:"flex",justifyContent:"space-between",alignItems:"center",gap:"0.65rem"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:"0.55rem",flex:1,minWidth:0}}>
+                          <span style={{fontSize:"1.2rem",flexShrink:0}}>{MIME_ICON(f.mime)}</span>
+                          <div style={{minWidth:0}}>
+                            <div style={{color:t.text,fontSize:"0.85rem",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}</div>
+                            <div style={{color:t.text4,fontSize:"0.65rem"}}>
+                              {fmtSize(f.size)}{f.size&&f.date?" · ":""}{f.date&&new Date(f.date).toLocaleDateString("it")}
+                            </div>
+                          </div>
+                        </div>
+                        <a href={f.url} target="_blank" rel="noopener noreferrer"
+                          style={{padding:"0.3rem 0.7rem",background:t.accent,border:"none",borderRadius:"0.35rem",color:t.accentText,fontWeight:700,fontSize:"0.72rem",textDecoration:"none",whiteSpace:"nowrap",flexShrink:0}}>
+                          ↗ Apri
+                        </a>
+                      </div>
+                    ))}
                   </div>
                 </div>
-                <div style={{flex:1,minHeight:0,background:"#555",borderRadius:"0 0 1rem 1rem",overflow:"hidden"}}>
-                  <iframe src={toEmbedUrl(viewDoc.url)} style={{width:"100%",height:"100%",minHeight:"520px",border:"none",display:"block"}} title={viewDoc.name} allow="autoplay"/>
-                </div>
-              </div>
+              )}
             </div>
           )}
         </div>
@@ -819,19 +849,17 @@ function WorkerDetail({ worker, onClose, onUpdate }) {
   );
 }
 
-// Convert Google Drive share URL → embed URL
-function normalizeDriveUrl(url) {
-  // Already embed
-  if (url.includes("/preview") || url.includes("embed")) return url;
-  // drive.google.com/file/d/FILE_ID/view?...  → /preview
-  const m = url.match(/\/file\/d\/([^/]+)/);
-  if (m) return `https://drive.google.com/file/d/${m[1]}/preview`;
-  // drive.google.com/open?id=FILE_ID
-  const m2 = url.match(/[?&]id=([^&]+)/);
-  if (m2) return `https://drive.google.com/file/d/${m2[1]}/preview`;
-  return url;
+function extractDriveFolderId(input) {
+  // folders/FOLDER_ID or ?id=FOLDER_ID
+  const m1 = input.match(/\/folders\/([^/?&]+)/);
+  if (m1) return m1[1];
+  const m2 = input.match(/[?&]id=([^&]+)/);
+  if (m2) return m2[1];
+  // bare ID (25+ chars alphanumeric/dash)
+  const m3 = input.match(/^[-\w]{25,}$/);
+  if (m3) return input.trim();
+  return null;
 }
-function toEmbedUrl(url) { return normalizeDriveUrl(url); }
 
 function MiniChart({ workerId, oreData }) {
   const t = useTheme();
