@@ -473,7 +473,7 @@ function DashboardWorkers() {
   const save = async w => { setWorkers(w); await storage.set("workers",w); };
 
   const openAdd = () => { setForm(blank); setEditWorker(null); setShowForm(true); };
-  const openEdit = (e,w) => { e.stopPropagation(); setForm({name:w.name,surname:w.surname,nickname:w.nickname||"",active:w.active}); setEditWorker(w); setShowForm(true); };
+  const openEdit = (w) => { setForm({name:w.name,surname:w.surname,nickname:w.nickname||"",active:w.active}); setEditWorker(w); setShowForm(true); };
 
   const submit = async () => {
     if (!form.name||!form.surname) return;
@@ -487,9 +487,8 @@ function DashboardWorkers() {
     setShowForm(false); setEditWorker(null); setForm(blank);
   };
 
-  const toggleActive = async (e,id) => { e.stopPropagation(); await save(workers.map(w=>w.id===id?{...w,active:!w.active}:w)); };
-  const remove = async (e,id) => {
-    e.stopPropagation();
+  const toggleActive = async (id) => { await save(workers.map(w=>w.id===id?{...w,active:!w.active}:w)); };
+  const remove = async (id) => {
     if (!await confirmDel("Eliminare questo lavoratore definitivamente?")) return;
     await save(workers.filter(w=>w.id!==id));
     if (detailWorker?.id===id) setDetailWorker(null);
@@ -562,9 +561,9 @@ function DashboardWorkers() {
                 <div style={{display:"flex",flexDirection:"column",gap:"0.25rem",alignItems:"flex-end",marginLeft:"0.4rem"}}>
                   <Tag bg={w.active?t.greenBg:t.redBg} color={w.active?t.green:t.red}>{w.active?"Attivo":"Inattivo"}</Tag>
                   <div style={{display:"flex",gap:"0.22rem",marginTop:"0.1rem"}}>
-                    <IconBtn onClick={e=>openEdit(e,w)} icon="✏️" color={t.blue} title="Modifica"/>
-                    <IconBtn onClick={e=>toggleActive(e,w.id)} icon={w.active?"⏸":"▶"} color={t.text3} title={w.active?"Disattiva":"Attiva"}/>
-                    <IconBtn onClick={e=>remove(e,w.id)} icon="🗑" color={t.red} title="Elimina"/>
+                    <IconBtn onClick={()=>openEdit(w)} icon="✏️" color={t.blue} title="Modifica"/>
+                    <IconBtn onClick={()=>toggleActive(w.id)} icon={w.active?"⏸":"▶"} color={t.text3} title={w.active?"Disattiva":"Attiva"}/>
+                    <IconBtn onClick={()=>remove(w.id)} icon="🗑" color={t.red} title="Elimina"/>
                   </div>
                 </div>
               </div>
