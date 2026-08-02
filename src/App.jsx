@@ -211,7 +211,7 @@ function buildOrePrintHTML(md, year, month) {
     return `<tr style="background:${we?"#f0f0f8":"#fff"}"><td style="width:2rem;font-weight:600">${d.day}</td><td style="width:2.5rem;color:#777;font-size:11px">${dn}</td>${cells}</tr>`;
   }).join("");
   const tots = totals.map(t=>`<td style="text-align:center;font-weight:700;color:#8b6914">${t.h}h/${t.r}R</td>`).join("");
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font-family:Arial,sans-serif;margin:0;padding:20px;color:#1a1a1a}h1{font-family:Georgia,serif;color:#8b6914;font-size:18px;margin:0 0 4px}p{color:#888;font-size:12px;margin:0 0 14px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #e0d8c8;padding:4px 7px}thead th{background:#f5f0e8;text-align:center;border-bottom:2px solid #c9a96e}@media print{body{padding:10px}}</style></head><body><h1>⏱ Ore Lavorate — ${APP}</h1><p>${MONTHS[month]} ${year} — Documento redatto da D'Oria Daniela</p><table><thead><tr><th style="width:2rem">G</th><th style="width:2.5rem">Gg</th>${hdrs}</tr></thead><tbody>${rows}<tr style="background:#f5f0e8"><td colspan="2" style="font-weight:700;color:#8b6914;padding:5px 8px">TOTALE</td>${tots}</tr></tbody></table></body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font-family:Arial,sans-serif;margin:0;padding:20px;color:#1a1a1a}h1{font-family:Georgia,serif;color:#8b6914;font-size:18px;margin:0 0 4px}p{color:#888;font-size:12px;margin:0 0 14px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #e0d8c8;padding:4px 7px}thead th{background:#f5f0e8;text-align:center;border-bottom:2px solid #c9a96e}@media print{body{padding:10px}}</style></head><body><h1>⏱ Ore Lavorate — ${APP}</h1><p>${MONTHS[month]} ${year}</p><table><thead><tr><th style="width:2rem">G</th><th style="width:2.5rem">Gg</th>${hdrs}</tr></thead><tbody>${rows}<tr style="background:#f5f0e8"><td colspan="2" style="font-weight:700;color:#8b6914;padding:5px 8px">TOTALE</td>${tots}</tr></tbody></table></body></html>`;
 }
 function buildPresenzePrintHTML(data, year, month) {
   if (!data) return "";
@@ -221,7 +221,7 @@ function buildPresenzePrintHTML(data, year, month) {
     const cells=d.values.map(v=>`<td style="text-align:center;color:${v==="R"?"#c00":v==="X"?"#1a6a1a":"#bbb"};font-weight:${v?700:400}">${v||""}</td>`).join("");
     return `<tr style="background:${we?"#f0f0f8":"#fff"}"><td style="width:2rem;font-weight:600">${d.day}</td><td style="width:2.5rem;color:#777;font-size:11px">${dn}</td>${cells}</tr>`;
   }).join("");
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font-family:Arial,sans-serif;margin:0;padding:20px;color:#1a1a1a}h1{font-family:Georgia,serif;color:#8b6914;font-size:18px;margin:0 0 4px}p{color:#888;font-size:12px;margin:0 0 14px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #e0d8c8;padding:4px 7px}thead th{background:#f5f0e8;text-align:center;border-bottom:2px solid #c9a96e}@media print{body{padding:10px}}</style></head><body><h1>📋 Previsione Presenze — ${APP}</h1><p>${MONTHS[month]} ${year} — Documento redatto da D'Oria Daniela</p><table><thead><tr><th style="width:2rem">G</th><th style="width:2.5rem">Gg</th>${hdrs}</tr></thead><tbody>${rows}</tbody></table></body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font-family:Arial,sans-serif;margin:0;padding:20px;color:#1a1a1a}h1{font-family:Georgia,serif;color:#8b6914;font-size:18px;margin:0 0 4px}p{color:#888;font-size:12px;margin:0 0 14px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #e0d8c8;padding:4px 7px}thead th{background:#f5f0e8;text-align:center;border-bottom:2px solid #c9a96e}@media print{body{padding:10px}}</style></head><body><h1>📋 Previsione Presenze — ${APP}</h1><p>${MONTHS[month]} ${year}</p><table><thead><tr><th style="width:2rem">G</th><th style="width:2.5rem">Gg</th>${hdrs}</tr></thead><tbody>${rows}</tbody></table></body></html>`;
 }
 
 // ===================== APP ROOT =====================
@@ -438,34 +438,68 @@ function DashboardWorkers() {
   const [workers,setWorkers] = useState([]);
   const [oreData,setOreData] = useState({});
   const [showForm,setShowForm] = useState(false);
-  const [editWorker,setEditWorker] = useState(null); // worker being edited
-  const [selected,setSelected] = useState(null);
-  const blank = { name:"",surname:"",nickname:"",contract:CONTRACT_TYPES[0],contractStart:"",contractEnd:"",active:true };
+  const [editWorker,setEditWorker] = useState(null);
+  const [detailWorker,setDetailWorker] = useState(null); // worker open in detail modal
+  const blank = { name:"",surname:"",nickname:"",active:true };
   const [form,setForm] = useState(blank);
 
-  useEffect(()=>{(async()=>{ setWorkers(await storage.get("workers")||[]); setOreData(await storage.get("oreData")||{}); })();},[]);
+  useEffect(()=>{(async()=>{
+    const raw = await storage.get("workers")||[];
+    // Migrate: if worker has old contract fields but no contracts array, convert
+    const migrated = raw.map(w => {
+      if (!w.contracts) {
+        const legacy = [];
+        if (w.contract || w.contractStart) {
+          legacy.push({
+            id: "legacy-"+w.id,
+            type: w.contract||CONTRACT_TYPES[0],
+            start: w.contractStart||"",
+            end: w.contractEnd||"",
+            notes: "",
+            active: true,
+          });
+        }
+        return { ...w, contracts: legacy };
+      }
+      return w;
+    });
+    // Save migrated if anything changed
+    const needsSave = migrated.some((w,i)=>!raw[i].contracts);
+    if (needsSave) { await storage.set("workers", migrated); }
+    setWorkers(migrated);
+    setOreData(await storage.get("oreData")||{});
+  })();},[]);
+
   const save = async w => { setWorkers(w); await storage.set("workers",w); };
 
   const openAdd = () => { setForm(blank); setEditWorker(null); setShowForm(true); };
-  const openEdit = w => { setForm({...w}); setEditWorker(w); setShowForm(true); };
+  const openEdit = (e,w) => { e.stopPropagation(); setForm({name:w.name,surname:w.surname,nickname:w.nickname||"",active:w.active}); setEditWorker(w); setShowForm(true); };
 
   const submit = async () => {
     if (!form.name||!form.surname) return;
     let updated;
     if (editWorker) {
-      updated = workers.map(w=>w.id===editWorker.id?{...w,...form}:w);
+      updated = workers.map(w=>w.id===editWorker.id?{...w,name:form.name,surname:form.surname,nickname:form.nickname,active:form.active}:w);
     } else {
-      updated = [...workers, {...form, id:Date.now().toString()}];
+      updated = [...workers, {...form, id:Date.now().toString(), contracts:[], docs:[]}];
     }
     await save(updated);
     setShowForm(false); setEditWorker(null); setForm(blank);
   };
 
-  const toggleActive = async id => { await save(workers.map(w=>w.id===id?{...w,active:!w.active}:w)); };
-  const remove = async id => {
+  const toggleActive = async (e,id) => { e.stopPropagation(); await save(workers.map(w=>w.id===id?{...w,active:!w.active}:w)); };
+  const remove = async (e,id) => {
+    e.stopPropagation();
     if (!await confirmDel("Eliminare questo lavoratore definitivamente?")) return;
     await save(workers.filter(w=>w.id!==id));
-    if (selected?.id===id) setSelected(null);
+    if (detailWorker?.id===id) setDetailWorker(null);
+  };
+
+  // Update a single worker in state+storage
+  const updateWorker = async (updated) => {
+    const list = workers.map(w=>w.id===updated.id?updated:w);
+    await save(list);
+    setDetailWorker(updated);
   };
 
   const getStats = wid => {
@@ -478,69 +512,71 @@ function DashboardWorkers() {
     return {h:Math.round(h*10)/10,r,m};
   };
 
-  const FormContent = (
-    <div>
-      <FGrid>
-        <div><Lbl>Nome *</Lbl><Inp placeholder="Nome" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></div>
-        <div><Lbl>Cognome *</Lbl><Inp placeholder="Cognome" value={form.surname} onChange={e=>setForm({...form,surname:e.target.value})}/></div>
-        <div><Lbl>Soprannome</Lbl><Inp placeholder="Soprannome" value={form.nickname} onChange={e=>setForm({...form,nickname:e.target.value})}/></div>
-        <div><Lbl>Tipo contratto</Lbl><Sel value={form.contract} onChange={e=>setForm({...form,contract:e.target.value})}>{CONTRACT_TYPES.map(c=><option key={c}>{c}</option>)}</Sel></div>
-        <div><Lbl>Inizio contratto</Lbl><Inp type="date" value={form.contractStart} onChange={e=>setForm({...form,contractStart:e.target.value})}/></div>
-        <div><Lbl>Fine contratto (opz.)</Lbl><Inp type="date" value={form.contractEnd} onChange={e=>setForm({...form,contractEnd:e.target.value})}/></div>
-      </FGrid>
-      <div style={{ marginTop:"0.5rem" }}>
-        <label style={{ display:"flex",alignItems:"center",gap:"0.5rem",cursor:"pointer",color:t.text2,fontSize:"0.85rem" }}>
-          <input type="checkbox" checked={form.active} onChange={e=>setForm({...form,active:e.target.checked})}/> Attivo
-        </label>
-      </div>
-      <div style={{ display:"flex",gap:"0.45rem",marginTop:"0.85rem" }}>
-        <Btn onClick={submit}>{editWorker?"Aggiorna":"Salva"}</Btn>
-        <Btn variant="secondary" onClick={()=>{setShowForm(false);setEditWorker(null);}}>Annulla</Btn>
-      </div>
-    </div>
-  );
+  const activeContract = w => (w.contracts||[]).find(c=>c.active) || (w.contracts||[]).slice(-1)[0] || null;
 
   return (
-    <div style={{ maxWidth:"75rem",margin:"0 auto" }}>
+    <div style={{maxWidth:"75rem",margin:"0 auto"}}>
       <PageHeader title="👥 Lavoratori"><Btn onClick={openAdd}>+ Nuovo</Btn></PageHeader>
-      {showForm && (
+
+      {showForm&&(
         <Modal title={editWorker?"✏️ Modifica Lavoratore":"➕ Nuovo Lavoratore"} onClose={()=>{setShowForm(false);setEditWorker(null);}}>
-          {FormContent}
+          <FGrid>
+            <div><Lbl>Nome *</Lbl><Inp placeholder="Nome" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></div>
+            <div><Lbl>Cognome *</Lbl><Inp placeholder="Cognome" value={form.surname} onChange={e=>setForm({...form,surname:e.target.value})}/></div>
+            <div><Lbl>Soprannome</Lbl><Inp placeholder="Soprannome" value={form.nickname} onChange={e=>setForm({...form,nickname:e.target.value})}/></div>
+          </FGrid>
+          <div style={{marginTop:"0.5rem"}}>
+            <label style={{display:"flex",alignItems:"center",gap:"0.5rem",cursor:"pointer",color:t.text2,fontSize:"0.85rem"}}>
+              <input type="checkbox" checked={form.active} onChange={e=>setForm({...form,active:e.target.checked})}/> Attivo
+            </label>
+          </div>
+          <div style={{display:"flex",gap:"0.45rem",marginTop:"0.85rem"}}>
+            <Btn onClick={submit}>{editWorker?"Aggiorna":"Salva"}</Btn>
+            <Btn variant="secondary" onClick={()=>{setShowForm(false);setEditWorker(null);}}>Annulla</Btn>
+          </div>
         </Modal>
       )}
-      <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(17.5rem,1fr))",gap:"0.9rem" }}>
+
+      {detailWorker&&(
+        <WorkerDetail
+          worker={detailWorker}
+          onClose={()=>setDetailWorker(null)}
+          onUpdate={updateWorker}
+        />
+      )}
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(17.5rem,1fr))",gap:"0.9rem"}}>
         {workers.map(w=>{
-          const s=getStats(w.id),isSel=selected?.id===w.id;
+          const s=getStats(w.id);
+          const ac=activeContract(w);
           return (
-            <div key={w.id} onClick={()=>setSelected(isSel?null:w)}
-              style={{ background:t.bg2,border:`1px solid ${isSel?t.accent:t.border}`,borderRadius:"0.75rem",padding:"0.95rem",cursor:"pointer",opacity:w.active?1:0.62,transition:"border-color 0.2s" }}>
-              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"0.7rem" }}>
-                <div style={{ flex:1,minWidth:0 }}>
-                  <div style={{ color:t.text,fontWeight:700,fontSize:"0.95rem",fontFamily:"'Playfair Display',serif" }}>{w.name} {w.surname}</div>
-                  {w.nickname&&<div style={{ color:t.accent,fontSize:"0.78rem",fontStyle:"italic" }}>"{w.nickname}"</div>}
-                  <div style={{ color:t.text3,fontSize:"0.72rem",marginTop:"0.1rem" }}>{w.contract}</div>
-                  {(w.contractStart||w.contractEnd)&&<div style={{ color:t.text4,fontSize:"0.65rem",marginTop:"0.1rem" }}>
-                    {w.contractStart&&`Dal ${w.contractStart}`}{w.contractEnd&&` al ${w.contractEnd}`}
-                  </div>}
+            <div key={w.id} onClick={()=>setDetailWorker(w)}
+              style={{background:t.bg2,border:`1px solid ${t.border}`,borderRadius:"0.75rem",padding:"0.95rem",cursor:"pointer",opacity:w.active?1:0.62,transition:"border-color 0.2s"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"0.7rem"}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{color:t.text,fontWeight:700,fontSize:"0.95rem",fontFamily:"'Playfair Display',serif"}}>{w.name} {w.surname}</div>
+                  {w.nickname&&<div style={{color:t.accent,fontSize:"0.78rem",fontStyle:"italic"}}>"{w.nickname}"</div>}
+                  {ac&&<div style={{color:t.text3,fontSize:"0.72rem",marginTop:"0.1rem"}}>{ac.type}{ac.start&&` · dal ${ac.start}`}</div>}
+                  <div style={{color:t.text4,fontSize:"0.65rem",marginTop:"0.2rem"}}>{(w.contracts||[]).length} contratti · {(w.docs||[]).length} doc</div>
                 </div>
-                <div style={{ display:"flex",flexDirection:"column",gap:"0.25rem",alignItems:"flex-end",marginLeft:"0.4rem" }}>
+                <div style={{display:"flex",flexDirection:"column",gap:"0.25rem",alignItems:"flex-end",marginLeft:"0.4rem"}}>
                   <Tag bg={w.active?t.greenBg:t.redBg} color={w.active?t.green:t.red}>{w.active?"Attivo":"Inattivo"}</Tag>
-                  <div style={{ display:"flex",gap:"0.22rem",marginTop:"0.1rem" }}>
-                    <IconBtn onClick={()=>openEdit(w)} icon="✏️" color={t.blue} title="Modifica"/>
-                    <IconBtn onClick={()=>toggleActive(w.id)} icon={w.active?"⏸":"▶"} color={t.text3} title={w.active?"Disattiva":"Attiva"}/>
-                    <IconBtn onClick={()=>remove(w.id)} icon="🗑" color={t.red} title="Elimina"/>
+                  <div style={{display:"flex",gap:"0.22rem",marginTop:"0.1rem"}}>
+                    <IconBtn onClick={e=>openEdit(e,w)} icon="✏️" color={t.blue} title="Modifica"/>
+                    <IconBtn onClick={e=>toggleActive(e,w.id)} icon={w.active?"⏸":"▶"} color={t.text3} title={w.active?"Disattiva":"Attiva"}/>
+                    <IconBtn onClick={e=>remove(e,w.id)} icon="🗑" color={t.red} title="Elimina"/>
                   </div>
                 </div>
               </div>
-              <div style={{ display:"flex",gap:"0.4rem" }}>
+              <div style={{display:"flex",gap:"0.4rem"}}>
                 {[["Ore",s.h],["Riposi",s.r],["Mesi",s.m]].map(([l,v])=>(
-                  <div key={l} style={{ flex:1,background:t.bg3,borderRadius:"0.45rem",padding:"0.45rem",textAlign:"center" }}>
-                    <div style={{ color:t.accent,fontWeight:700,fontSize:"1.05rem" }}>{v}</div>
-                    <div style={{ color:t.text4,fontSize:"0.6rem",marginTop:"0.1rem" }}>{l}</div>
+                  <div key={l} style={{flex:1,background:t.bg3,borderRadius:"0.45rem",padding:"0.45rem",textAlign:"center"}}>
+                    <div style={{color:t.accent,fontWeight:700,fontSize:"1.05rem"}}>{v}</div>
+                    <div style={{color:t.text4,fontSize:"0.6rem",marginTop:"0.1rem"}}>{l}</div>
                   </div>
                 ))}
               </div>
-              {isSel&&s.m>0&&<MiniChart workerId={w.id} oreData={oreData}/>}
+              {s.m>0&&<MiniChart workerId={w.id} oreData={oreData}/>}
             </div>
           );
         })}
@@ -549,6 +585,254 @@ function DashboardWorkers() {
     </div>
   );
 }
+
+// ===================== WORKER DETAIL MODAL =====================
+function WorkerDetail({ worker, onClose, onUpdate }) {
+  const t = useTheme();
+  const [tab, setTab] = useState("contratti"); // "contratti" | "documenti"
+  const [showContractForm, setShowContractForm] = useState(false);
+  const [editContract, setEditContract] = useState(null);
+  const [showDocForm, setShowDocForm] = useState(false);
+  const [editDoc, setEditDoc] = useState(null);
+  const [viewDoc, setViewDoc] = useState(null); // doc to preview
+  const blankC = { type:CONTRACT_TYPES[0], start:"", end:"", notes:"", active:false };
+  const blankD = { name:"", url:"", type:"pdf", notes:"" };
+  const [cForm, setCForm] = useState(blankC);
+  const [dForm, setDForm] = useState(blankD);
+
+  const contracts = worker.contracts||[];
+  const docs = worker.docs||[];
+
+  // --- Contracts ---
+  const submitContract = async () => {
+    if (!cForm.type) return;
+    let updated;
+    if (editContract) {
+      updated = contracts.map(c=>c.id===editContract.id?{...c,...cForm}:c);
+    } else {
+      // If new contract marked active, deactivate others
+      let list = cForm.active ? contracts.map(c=>({...c,active:false})) : [...contracts];
+      list = [...list, {...cForm, id:Date.now().toString()}];
+      updated = list;
+    }
+    // If this one is active, deactivate others
+    if (cForm.active && editContract) updated = updated.map(c=>c.id===editContract.id?c:{...c,active:false});
+    await onUpdate({...worker, contracts:updated});
+    setCForm(blankC); setShowContractForm(false); setEditContract(null);
+  };
+  const removeContract = async id => {
+    if (!await confirmDel("Eliminare questo contratto dallo storico?")) return;
+    await onUpdate({...worker, contracts:contracts.filter(c=>c.id!==id)});
+  };
+  const openEditC = c => { setCForm({type:c.type,start:c.start||"",end:c.end||"",notes:c.notes||"",active:c.active||false}); setEditContract(c); setShowContractForm(true); };
+  const setActiveContract = async id => {
+    const updated = contracts.map(c=>({...c,active:c.id===id}));
+    await onUpdate({...worker, contracts:updated});
+  };
+
+  // --- Docs ---
+  const submitDoc = async () => {
+    if (!dForm.name||!dForm.url) return;
+    // Convert Google Drive share URL to direct/embed URL
+    const url = normalizeDriveUrl(dForm.url);
+    let updated;
+    if (editDoc) {
+      updated = docs.map(d=>d.id===editDoc.id?{...d,...dForm,url}:d);
+    } else {
+      updated = [...docs, {...dForm, url, id:Date.now().toString(), addedAt:new Date().toISOString()}];
+    }
+    await onUpdate({...worker, docs:updated});
+    setDForm(blankD); setShowDocForm(false); setEditDoc(null);
+  };
+  const removeDoc = async id => {
+    if (!await confirmDel("Rimuovere questo documento?")) return;
+    await onUpdate({...worker, docs:docs.filter(d=>d.id!==id)});
+  };
+  const openEditD = d => { setDForm({name:d.name,url:d.url,type:d.type||"pdf",notes:d.notes||""}); setEditDoc(d); setShowDocForm(true); };
+
+  const DOC_TYPES = ["pdf","immagine","word","altro"];
+  const DOC_ICONS = {pdf:"📄",immagine:"🖼",word:"📝",altro:"📎"};
+
+  return (
+    <Modal title={`👤 ${worker.name} ${worker.surname}${worker.nickname?` "${worker.nickname}"`:""}` } onClose={onClose} wide>
+      {/* Sub-tabs */}
+      <div style={{display:"flex",gap:"0.35rem",marginBottom:"1rem",borderBottom:`1px solid ${t.border}`,paddingBottom:"0.65rem"}}>
+        {[{v:"contratti",l:"📋 Storico Contratti"},{v:"documenti",l:"📁 Documenti"}].map(tb=>(
+          <button key={tb.v} type="button" onClick={()=>setTab(tb.v)}
+            style={{padding:"0.38rem 0.85rem",border:"none",borderRadius:"0.4rem",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:"0.82rem",fontWeight:tab===tb.v?700:400,background:tab===tb.v?t.accent:"none",color:tab===tb.v?t.accentText:t.text3}}>
+            {tb.l}
+          </button>
+        ))}
+      </div>
+
+      {/* ---- CONTRATTI ---- */}
+      {tab==="contratti"&&(
+        <div>
+          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:"0.65rem"}}>
+            <Btn onClick={()=>{setCForm(blankC);setEditContract(null);setShowContractForm(true);}}>+ Nuovo contratto</Btn>
+          </div>
+          {showContractForm&&(
+            <div style={{background:t.bg3,border:`1px solid ${t.border2}`,borderRadius:"0.65rem",padding:"0.9rem",marginBottom:"0.75rem"}}>
+              <div style={{color:t.accent,fontWeight:700,fontSize:"0.85rem",marginBottom:"0.65rem"}}>{editContract?"✏️ Modifica contratto":"➕ Nuovo contratto"}</div>
+              <FGrid>
+                <div><Lbl>Tipo contratto *</Lbl><Sel value={cForm.type} onChange={e=>setCForm({...cForm,type:e.target.value})}>{CONTRACT_TYPES.map(c=><option key={c}>{c}</option>)}</Sel></div>
+                <div><Lbl>Data inizio</Lbl><Inp type="date" value={cForm.start} onChange={e=>setCForm({...cForm,start:e.target.value})}/></div>
+                <div><Lbl>Data fine (opz.)</Lbl><Inp type="date" value={cForm.end} onChange={e=>setCForm({...cForm,end:e.target.value})}/></div>
+              </FGrid>
+              <div style={{marginTop:"0.5rem"}}><Lbl>Note (opz.)</Lbl><Inp textarea style={{height:"3rem"}} value={cForm.notes} onChange={e=>setCForm({...cForm,notes:e.target.value})}/></div>
+              <div style={{marginTop:"0.5rem"}}>
+                <label style={{display:"flex",alignItems:"center",gap:"0.5rem",cursor:"pointer",color:t.text2,fontSize:"0.85rem"}}>
+                  <input type="checkbox" checked={cForm.active} onChange={e=>setCForm({...cForm,active:e.target.checked})}/> Contratto attualmente in corso
+                </label>
+              </div>
+              <div style={{display:"flex",gap:"0.4rem",marginTop:"0.65rem"}}>
+                <Btn onClick={submitContract}>{editContract?"Aggiorna":"Salva"}</Btn>
+                <Btn variant="secondary" onClick={()=>{setShowContractForm(false);setEditContract(null);}}>Annulla</Btn>
+              </div>
+            </div>
+          )}
+          {contracts.length===0&&<Empty msg="Nessun contratto nello storico. Aggiungine uno."/>}
+          <div style={{display:"flex",flexDirection:"column",gap:"0.5rem"}}>
+            {[...contracts].sort((a,b)=>(b.start||"").localeCompare(a.start||"")).map(c=>(
+              <div key={c.id} style={{background:t.bg2,border:`1px solid ${c.active?t.accent:t.border}`,borderRadius:"0.6rem",padding:"0.75rem 0.9rem",display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:"0.65rem"}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",gap:"0.4rem",alignItems:"center",flexWrap:"wrap",marginBottom:"0.25rem"}}>
+                    <span style={{color:t.text,fontWeight:700,fontSize:"0.9rem"}}>{c.type}</span>
+                    {c.active&&<Tag bg={t.greenBg} color={t.green}>✓ In corso</Tag>}
+                  </div>
+                  <div style={{color:t.text3,fontSize:"0.75rem"}}>
+                    {c.start&&`Dal ${c.start}`}{c.end&&` al ${c.end}`}{!c.start&&!c.end&&"Date non specificate"}
+                  </div>
+                  {c.notes&&<div style={{color:t.text4,fontSize:"0.72rem",marginTop:"0.2rem",fontStyle:"italic"}}>{c.notes}</div>}
+                </div>
+                <div style={{display:"flex",gap:"0.22rem",flexShrink:0,flexDirection:"column",alignItems:"flex-end"}}>
+                  <div style={{display:"flex",gap:"0.22rem"}}>
+                    <IconBtn onClick={()=>openEditC(c)} icon="✏️" color={t.blue} title="Modifica"/>
+                    <IconBtn onClick={()=>removeContract(c.id)} icon="🗑" color={t.red} title="Elimina"/>
+                  </div>
+                  {!c.active&&<button type="button" onClick={()=>setActiveContract(c.id)}
+                    style={{fontSize:"0.65rem",padding:"0.18rem 0.45rem",background:"none",border:`1px solid ${t.border2}`,borderRadius:"0.3rem",cursor:"pointer",color:t.text3,fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap"}}>
+                    Imposta attivo
+                  </button>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ---- DOCUMENTI ---- */}
+      {tab==="documenti"&&(
+        <div>
+          {/* Guide */}
+          <div style={{background:t.blueBg,border:`1px solid ${t.blue}33`,borderRadius:"0.65rem",padding:"0.8rem 1rem",marginBottom:"0.85rem",fontSize:"0.78rem",color:t.text2}}>
+            <div style={{fontWeight:700,color:t.blue,marginBottom:"0.4rem"}}>📖 Come aggiungere documenti da Google Drive</div>
+            <ol style={{margin:0,paddingLeft:"1.2rem",lineHeight:1.9}}>
+              <li>Apri <strong>Google Drive</strong> e carica il documento (PDF, immagine, Word…)</li>
+              <li>Tasto destro sul file → <strong>"Ottieni link"</strong></li>
+              <li>Imposta accesso su <strong>"Chiunque abbia il link"</strong> → copia il link</li>
+              <li>Incolla il link qui sotto — il sistema lo converte automaticamente per la visualizzazione</li>
+            </ol>
+            <div style={{marginTop:"0.5rem",color:t.text3,fontSize:"0.72rem"}}>💡 I documenti rimangono sul tuo Google Drive. Il gestionale salva solo il link.</div>
+          </div>
+
+          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:"0.65rem"}}>
+            <Btn onClick={()=>{setDForm(blankD);setEditDoc(null);setShowDocForm(true);}}>+ Aggiungi documento</Btn>
+          </div>
+
+          {showDocForm&&(
+            <div style={{background:t.bg3,border:`1px solid ${t.border2}`,borderRadius:"0.65rem",padding:"0.9rem",marginBottom:"0.75rem"}}>
+              <div style={{color:t.accent,fontWeight:700,fontSize:"0.85rem",marginBottom:"0.65rem"}}>{editDoc?"✏️ Modifica documento":"➕ Aggiungi documento"}</div>
+              <FGrid>
+                <div><Lbl>Nome documento *</Lbl><Inp placeholder="es. Contratto 2024, CdI Mario Rossi" value={dForm.name} onChange={e=>setDForm({...dForm,name:e.target.value})}/></div>
+                <div><Lbl>Tipo</Lbl>
+                  <Sel value={dForm.type} onChange={e=>setDForm({...dForm,type:e.target.value})}>
+                    {DOC_TYPES.map(dt=><option key={dt} value={dt}>{DOC_ICONS[dt]} {dt}</option>)}
+                  </Sel>
+                </div>
+              </FGrid>
+              <div style={{marginTop:"0.5rem"}}><Lbl>Link Google Drive *</Lbl>
+                <Inp placeholder="https://drive.google.com/file/d/..." value={dForm.url} onChange={e=>setDForm({...dForm,url:e.target.value})}/>
+              </div>
+              <div style={{marginTop:"0.5rem"}}><Lbl>Note (opz.)</Lbl><Inp textarea style={{height:"2.8rem"}} value={dForm.notes} onChange={e=>setDForm({...dForm,notes:e.target.value})}/></div>
+              <div style={{display:"flex",gap:"0.4rem",marginTop:"0.65rem"}}>
+                <Btn onClick={submitDoc}>{editDoc?"Aggiorna":"Salva"}</Btn>
+                <Btn variant="secondary" onClick={()=>{setShowDocForm(false);setEditDoc(null);}}>Annulla</Btn>
+              </div>
+            </div>
+          )}
+
+          {docs.length===0&&<Empty msg="Nessun documento. Aggiungi un link da Google Drive."/>}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(15rem,1fr))",gap:"0.55rem"}}>
+            {docs.map(d=>(
+              <div key={d.id} style={{background:t.bg2,border:`1px solid ${t.border}`,borderRadius:"0.6rem",padding:"0.75rem 0.9rem"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:"0.4rem"}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",gap:"0.35rem",alignItems:"center",marginBottom:"0.25rem"}}>
+                      <span style={{fontSize:"1.1rem"}}>{DOC_ICONS[d.type]||"📎"}</span>
+                      <span style={{color:t.text,fontWeight:700,fontSize:"0.85rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.name}</span>
+                    </div>
+                    {d.notes&&<div style={{color:t.text4,fontSize:"0.7rem",marginBottom:"0.3rem",fontStyle:"italic"}}>{d.notes}</div>}
+                    {d.addedAt&&<div style={{color:t.text4,fontSize:"0.65rem"}}>Aggiunto {new Date(d.addedAt).toLocaleDateString("it")}</div>}
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",gap:"0.22rem",flexShrink:0}}>
+                    <IconBtn onClick={()=>openEditD(d)} icon="✏️" color={t.blue} title="Modifica"/>
+                    <IconBtn onClick={()=>removeDoc(d.id)} icon="🗑" color={t.red} title="Rimuovi"/>
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:"0.35rem",marginTop:"0.55rem"}}>
+                  <button type="button" onClick={()=>setViewDoc(d)}
+                    style={{flex:1,padding:"0.32rem 0.5rem",background:t.accent,border:"none",borderRadius:"0.35rem",color:t.accentText,fontWeight:700,fontSize:"0.72rem",cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+                    👁 Visualizza
+                  </button>
+                  <a href={d.url} target="_blank" rel="noopener noreferrer"
+                    style={{flex:1,padding:"0.32rem 0.5rem",background:"none",border:`1px solid ${t.border2}`,borderRadius:"0.35rem",color:t.text3,fontWeight:600,fontSize:"0.72rem",cursor:"pointer",textDecoration:"none",textAlign:"center",display:"block"}}>
+                    ↗ Apri
+                  </a>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Doc viewer */}
+          {viewDoc&&(
+            <div style={{position:"fixed",inset:0,background:t.overlay,zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:"1rem"}}>
+              <div style={{background:t.bg2,border:`1px solid ${t.border2}`,borderRadius:"1rem",width:"100%",maxWidth:"56rem",maxHeight:"92vh",display:"flex",flexDirection:"column",boxShadow:"0 24px 64px rgba(0,0,0,0.6)"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0.75rem 1rem",borderBottom:`1px solid ${t.border}`,flexShrink:0}}>
+                  <span style={{color:t.accent,fontWeight:700,fontSize:"0.95rem"}}>{DOC_ICONS[viewDoc.type]||"📎"} {viewDoc.name}</span>
+                  <div style={{display:"flex",gap:"0.5rem"}}>
+                    <a href={viewDoc.url} target="_blank" rel="noopener noreferrer"
+                      style={{padding:"0.38rem 0.75rem",background:"none",border:`1px solid ${t.border2}`,borderRadius:"0.4rem",color:t.text3,fontSize:"0.78rem",textDecoration:"none"}}>
+                      ↗ Apri in Drive
+                    </a>
+                    <button type="button" onClick={()=>setViewDoc(null)} style={{background:"none",border:"none",color:t.text3,fontSize:"1.2rem",cursor:"pointer",lineHeight:1}}>✕</button>
+                  </div>
+                </div>
+                <div style={{flex:1,minHeight:0,background:"#555",borderRadius:"0 0 1rem 1rem",overflow:"hidden"}}>
+                  <iframe src={toEmbedUrl(viewDoc.url)} style={{width:"100%",height:"100%",minHeight:"520px",border:"none",display:"block"}} title={viewDoc.name} allow="autoplay"/>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// Convert Google Drive share URL → embed URL
+function normalizeDriveUrl(url) {
+  // Already embed
+  if (url.includes("/preview") || url.includes("embed")) return url;
+  // drive.google.com/file/d/FILE_ID/view?...  → /preview
+  const m = url.match(/\/file\/d\/([^/]+)/);
+  if (m) return `https://drive.google.com/file/d/${m[1]}/preview`;
+  // drive.google.com/open?id=FILE_ID
+  const m2 = url.match(/[?&]id=([^&]+)/);
+  if (m2) return `https://drive.google.com/file/d/${m2[1]}/preview`;
+  return url;
+}
+function toEmbedUrl(url) { return normalizeDriveUrl(url); }
 
 function MiniChart({ workerId, oreData }) {
   const t = useTheme();
@@ -563,13 +847,13 @@ function MiniChart({ workerId, oreData }) {
   if (!md.length) return null;
   const max = Math.max(...md.map(m=>m.h),1);
   return (
-    <div style={{ marginTop:"0.7rem",borderTop:`1px solid ${t.border}`,paddingTop:"0.7rem" }}>
-      <div style={{ color:t.text3,fontSize:"0.65rem",marginBottom:"0.45rem" }}>Ore per mese</div>
-      <div style={{ display:"flex",alignItems:"flex-end",gap:"0.22rem",height:"3.5rem" }}>
+    <div style={{marginTop:"0.7rem",borderTop:`1px solid ${t.border}`,paddingTop:"0.7rem"}}>
+      <div style={{color:t.text3,fontSize:"0.65rem",marginBottom:"0.45rem"}}>Ore per mese</div>
+      <div style={{display:"flex",alignItems:"flex-end",gap:"0.22rem",height:"3.5rem"}}>
         {md.map((m,i)=>(
-          <div key={i} style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:"0.1rem" }}>
-            <div title={`${m.label}: ${m.h}h`} style={{ width:"100%",background:t.accent,borderRadius:"0.15rem",height:`${(m.h/max)*44}px`,minHeight:"2px",transition:"height 0.3s" }}/>
-            <div style={{ color:t.text4,fontSize:"0.52rem",textAlign:"center",lineHeight:1 }}>{m.label}</div>
+          <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:"0.1rem"}}>
+            <div title={`${m.label}: ${m.h}h`} style={{width:"100%",background:t.accent,borderRadius:"0.15rem",height:`${(m.h/max)*44}px`,minHeight:"2px",transition:"height 0.3s"}}/>
+            <div style={{color:t.text4,fontSize:"0.52rem",textAlign:"center",lineHeight:1}}>{m.label}</div>
           </div>
         ))}
       </div>
