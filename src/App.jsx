@@ -630,13 +630,15 @@ function WorkerDetail({ worker, onClose, onUpdate }) {
   };
 
   // --- Drive folder ---
-  // Worker stores: { driveUrl, driveFolderId, driveLabel }
   const driveFolder = worker.driveFolder || null;
   const [folderForm, setFolderForm] = useState({ url: driveFolder?.url||"", label: driveFolder?.label||"" });
   const [editingFolder, setEditingFolder] = useState(!driveFolder);
-  const [folderFiles, setFolderFiles] = useState(null);  // null=not loaded, []|[...]=loaded
+  const [folderFiles, setFolderFiles] = useState(null);
   const [folderLoading, setFolderLoading] = useState(false);
   const [folderError, setFolderError] = useState("");
+  const [viewingFile, setViewingFile] = useState(null); // file being previewed inline
+
+  const GAS_URL_DOC = "https://script.google.com/macros/s/AKfycbwuVnf-OA_Eed4jOrFIXbBqYysAEuYcaBD8RvDjP_xSXumn4Qd9aW1LKY9po1xWqK58/exec";
 
   const saveDriveFolder = async () => {
     if (!folderForm.url) return;
@@ -646,14 +648,14 @@ function WorkerDetail({ worker, onClose, onUpdate }) {
     await onUpdate({...worker, driveFolder: updated});
     setEditingFolder(false);
     setFolderError("");
-    setFolderFiles(null); // reset so it reloads
+    // Auto-load after saving
+    setTimeout(() => loadFolder(folderId), 300);
   };
 
   const loadFolder = async (fid) => {
     setFolderLoading(true); setFolderError(""); setFolderFiles(null);
     try {
-      const GAS = "https://script.google.com/macros/s/AKfycbwuVnf-OA_Eed4jOrFIXbBqYysAEuYcaBD8RvDjP_xSXumn4Qd9aW1LKY9po1xWqK58/exec";
-      const res = await fetch(`${GAS}?action=listFolder&folderId=${encodeURIComponent(fid)}`);
+      const res = await fetch(`${GAS_URL_DOC}?action=listFolder&folderId=${encodeURIComponent(fid)}`);
       const data = await res.json();
       if (data.error) { setFolderError("Errore: " + data.error); setFolderFiles([]); }
       else setFolderFiles(data.files||[]);
@@ -662,6 +664,20 @@ function WorkerDetail({ worker, onClose, onUpdate }) {
       setFolderFiles([]);
     }
     setFolderLoading(false);
+  };
+
+  // Auto-load when switching to documenti tab if folder exists and not yet loaded
+  useEffect(() => {
+    if (tab === "documenti" && driveFolder?.folderId && folderFiles === null && !folderLoading) {
+      loadFolder(driveFolder.folderId);
+    }
+  }, [tab]);
+
+  const driveEmbedUrl = (f) => {
+    // Build best-effort embed URL from file id
+    const id = f.id;
+    if (f.mime && f.mime.includes("image")) return `https://drive.google.com/uc?export=view&id=${id}`;
+    return `https://drive.google.com/file/d/${id}/preview`;
   };
 
   const MIME_ICON = mime => {
@@ -800,7 +816,7 @@ function WorkerDetail({ worker, onClose, onUpdate }) {
                     ↗ Apri in Drive
                   </a>
                   <Btn onClick={()=>loadFolder(driveFolder.folderId)} style={{fontSize:"0.75rem",padding:"0.32rem 0.65rem"}}>
-                    {folderLoading?"⏳ Carico...":"🔄 Carica file"}
+                    {folderLoading?"⏳ Carico...":"🔄 Aggiorna"}
                   </Btn>
                   <IconBtn onClick={()=>{setEditingFolder(true);setFolderForm({url:driveFolder.url,label:driveFolder.label||""});}} icon="✏️" color={t.blue} title="Cambia cartella"/>
                 </div>
@@ -810,9 +826,7 @@ function WorkerDetail({ worker, onClose, onUpdate }) {
               {folderError&&<div style={{color:t.red,fontSize:"0.8rem",padding:"0.5rem",background:t.redBg,borderRadius:"0.45rem",marginBottom:"0.65rem"}}>{folderError}</div>}
               {folderLoading&&<div style={{textAlign:"center",color:t.text3,padding:"2rem",fontSize:"0.85rem"}}>⏳ Caricamento file in corso...</div>}
               {folderFiles===null&&!folderLoading&&(
-                <div style={{textAlign:"center",color:t.text4,padding:"2rem",fontSize:"0.85rem"}}>
-                  Clicca <strong style={{color:t.accent}}>Carica file</strong> per vedere i documenti nella cartella Drive
-                </div>
+                <div style={{textAlign:"center",color:t.text3,padding:"2rem",fontSize:"0.85rem"}}>⏳ Caricamento documenti...</div>
               )}
               {folderFiles!==null&&!folderLoading&&folderFiles.length===0&&(
                 <Empty msg="La cartella è vuota. Carica i documenti direttamente su Google Drive."/>
@@ -822,20 +836,40 @@ function WorkerDetail({ worker, onClose, onUpdate }) {
                   <div style={{color:t.text3,fontSize:"0.72rem",marginBottom:"0.55rem"}}>{folderFiles.length} file nella cartella</div>
                   <div style={{display:"flex",flexDirection:"column",gap:"0.4rem"}}>
                     {folderFiles.map(f=>(
-                      <div key={f.id} style={{background:t.bg2,border:`1px solid ${t.border}`,borderRadius:"0.55rem",padding:"0.6rem 0.85rem",display:"flex",justifyContent:"space-between",alignItems:"center",gap:"0.65rem"}}>
-                        <div style={{display:"flex",alignItems:"center",gap:"0.55rem",flex:1,minWidth:0}}>
-                          <span style={{fontSize:"1.2rem",flexShrink:0}}>{MIME_ICON(f.mime)}</span>
-                          <div style={{minWidth:0}}>
-                            <div style={{color:t.text,fontSize:"0.85rem",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}</div>
-                            <div style={{color:t.text4,fontSize:"0.65rem"}}>
-                              {fmtSize(f.size)}{f.size&&f.date?" · ":""}{f.date&&new Date(f.date).toLocaleDateString("it")}
+                      <div key={f.id}>
+                        <div style={{background:t.bg2,border:`1px solid ${viewingFile?.id===f.id?t.accent:t.border}`,borderRadius:"0.55rem",padding:"0.6rem 0.85rem",display:"flex",justifyContent:"space-between",alignItems:"center",gap:"0.65rem"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:"0.55rem",flex:1,minWidth:0}}>
+                            <span style={{fontSize:"1.2rem",flexShrink:0}}>{MIME_ICON(f.mime)}</span>
+                            <div style={{minWidth:0}}>
+                              <div style={{color:t.text,fontSize:"0.85rem",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.name}</div>
+                              <div style={{color:t.text4,fontSize:"0.65rem"}}>
+                                {fmtSize(f.size)}{f.size&&f.date?" · ":""}{f.date&&new Date(f.date).toLocaleDateString("it")}
+                              </div>
                             </div>
                           </div>
+                          <div style={{display:"flex",gap:"0.35rem",flexShrink:0}}>
+                            <button type="button"
+                              onClick={()=>setViewingFile(viewingFile?.id===f.id?null:f)}
+                              style={{padding:"0.3rem 0.7rem",background:viewingFile?.id===f.id?t.bg3:t.accent,border:`1px solid ${t.accent}`,borderRadius:"0.35rem",color:viewingFile?.id===f.id?t.accent:t.accentText,fontWeight:700,fontSize:"0.72rem",cursor:"pointer",whiteSpace:"nowrap",fontFamily:"'DM Sans',sans-serif"}}>
+                              {viewingFile?.id===f.id?"▲ Chiudi":"👁 Anteprima"}
+                            </button>
+                            <a href={f.url} target="_blank" rel="noopener noreferrer"
+                              style={{padding:"0.3rem 0.7rem",background:"none",border:`1px solid ${t.border2}`,borderRadius:"0.35rem",color:t.text3,fontWeight:600,fontSize:"0.72rem",textDecoration:"none",whiteSpace:"nowrap"}}>
+                              ↗ Apri
+                            </a>
+                          </div>
                         </div>
-                        <a href={f.url} target="_blank" rel="noopener noreferrer"
-                          style={{padding:"0.3rem 0.7rem",background:t.accent,border:"none",borderRadius:"0.35rem",color:t.accentText,fontWeight:700,fontSize:"0.72rem",textDecoration:"none",whiteSpace:"nowrap",flexShrink:0}}>
-                          ↗ Apri
-                        </a>
+                        {viewingFile?.id===f.id&&(
+                          <div style={{border:`1px solid ${t.accent}`,borderTop:"none",borderRadius:"0 0 0.55rem 0.55rem",overflow:"hidden",background:"#444"}}>
+                            <iframe
+                              src={driveEmbedUrl(f)}
+                              style={{width:"100%",height:"520px",border:"none",display:"block"}}
+                              title={f.name}
+                              allow="autoplay"
+                              sandbox="allow-scripts allow-same-origin allow-popups"
+                            />
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1110,18 +1144,34 @@ function Ordini() {
   const t = useTheme();
   const [orders,setOrders] = useState([]);
   const [suppliers,setSuppliers] = useState([]);
+  const [catalog,setCatalog] = useState([]); // prodotti catalogo ordini
   const [showForm,setShowForm] = useState(false);
   const [editOrder,setEditOrder] = useState(null);
   const [filter,setFilter] = useState("all");
   const blankForm = { supplier:"",newSupplier:"",date:new Date().toISOString().slice(0,10),deadline:"",items:[{name:"",qty:""}],notes:"",completed:false };
   const [form,setForm] = useState(blankForm);
+  // Catalog picker state: which item row is showing the picker
+  const [pickerOpenIdx,setPickerOpenIdx] = useState(null);
+  const [pickerSearch,setPickerSearch] = useState("");
+  const [showNewCatalogForm,setShowNewCatalogForm] = useState(false);
+  const [newCatalogName,setNewCatalogName] = useState("");
 
-  useEffect(()=>{(async()=>{ setOrders(await storage.get("orders")||[]); setSuppliers(await storage.get("suppliers")||[]); })();},[]);
+  useEffect(()=>{(async()=>{
+    setOrders(await storage.get("orders")||[]);
+    setSuppliers(await storage.get("suppliers")||[]);
+    setCatalog(await storage.get("orderCatalog")||[]);
+  })();},[]);
+
   const saveOrders = async o => { setOrders(o); await storage.set("orders",o); };
   const saveSup = async s => { setSuppliers(s); await storage.set("suppliers",s); };
+  const saveCatalog = async c => { setCatalog(c); await storage.set("orderCatalog",c); };
 
-  const openAdd = () => { setForm(blankForm); setEditOrder(null); setShowForm(true); };
-  const openEdit = o => { setForm({...o,newSupplier:""}); setEditOrder(o); setShowForm(true); };
+  const openAdd = () => { setForm(blankForm); setEditOrder(null); setShowForm(true); setPickerOpenIdx(null); };
+  const openEdit = o => { setForm({...o,newSupplier:""}); setEditOrder(o); setShowForm(true); setPickerOpenIdx(null); };
+  const duplicate = async o => {
+    const copy = {...o, id:Date.now().toString(), date:new Date().toISOString().slice(0,10), completed:false, createdAt:new Date().toISOString()};
+    await saveOrders([copy,...orders]);
+  };
 
   const submit = async () => {
     let sup = form.supplier;
@@ -1141,7 +1191,20 @@ function Ordini() {
   const addItem = () => setForm({...form,items:[...form.items,{name:"",qty:""}]});
   const updItem = (i,f,v) => { const items=[...form.items];items[i][f]=v;setForm({...form,items}); };
   const removeItem = i => { const items=form.items.filter((_,idx)=>idx!==i);setForm({...form,items:items.length?items:[{name:"",qty:""}]}); };
+
+  const pickProduct = (rowIdx, prod) => {
+    updItem(rowIdx,"name",prod.name);
+    setPickerOpenIdx(null); setPickerSearch("");
+  };
+  const addToCatalog = async () => {
+    if (!newCatalogName.trim()) return;
+    const entry = {id:Date.now().toString(), name:newCatalogName.trim()};
+    await saveCatalog([...catalog,entry]);
+    setNewCatalogName(""); setShowNewCatalogForm(false);
+  };
+
   const filtered = orders.filter(o=>filter==="all"?true:filter==="active"?!o.completed:o.completed);
+  const filteredCatalog = catalog.filter(p=>p.name.toLowerCase().includes(pickerSearch.toLowerCase()));
 
   const FormContent = (
     <div>
@@ -1155,19 +1218,57 @@ function Ordini() {
         <div><Lbl>Data</Lbl><Inp type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></div>
         <div><Lbl>Scadenza (opz.)</Lbl><Inp type="date" value={form.deadline} onChange={e=>setForm({...form,deadline:e.target.value})}/></div>
       </FGrid>
-      <div style={{ marginTop:"0.65rem" }}>
+      <div style={{marginTop:"0.65rem"}}>
         <Lbl>Prodotti</Lbl>
         {form.items.map((item,i)=>(
-          <div key={i} style={{ display:"flex",gap:"0.4rem",marginBottom:"0.35rem",alignItems:"center" }}>
-            <Inp style={{ flex:3 }} placeholder="Prodotto" value={item.name} onChange={e=>updItem(i,"name",e.target.value)}/>
-            <Inp style={{ flex:1 }} placeholder="Qtà" value={item.qty} onChange={e=>updItem(i,"qty",e.target.value)}/>
-            <IconBtn onClick={()=>removeItem(i)} icon="✕" color={t.red} title="Rimuovi riga"/>
+          <div key={i} style={{marginBottom:"0.55rem"}}>
+            <div style={{display:"flex",gap:"0.4rem",alignItems:"center"}}>
+              <Inp style={{flex:3}} placeholder="Nome prodotto" value={item.name} onChange={e=>updItem(i,"name",e.target.value)}/>
+              {/* 🔍 catalog picker toggle */}
+              <button type="button" title="Scegli dal catalogo"
+                onClick={()=>{setPickerOpenIdx(pickerOpenIdx===i?null:i);setPickerSearch("");setShowNewCatalogForm(false);}}
+                style={{padding:"0.45rem 0.55rem",background:pickerOpenIdx===i?t.accent:t.bg3,border:`1px solid ${pickerOpenIdx===i?t.accent:t.border2}`,borderRadius:"0.4rem",cursor:"pointer",color:pickerOpenIdx===i?t.accentText:t.text3,fontSize:"0.95rem",flexShrink:0,lineHeight:1}}>
+                🔍
+              </button>
+              <Inp style={{flex:1,minWidth:"4rem"}} placeholder="Qtà" value={item.qty} onChange={e=>updItem(i,"qty",e.target.value)}/>
+              <IconBtn onClick={()=>removeItem(i)} icon="✕" color={t.red} title="Rimuovi riga"/>
+            </div>
+            {/* Catalog picker dropdown */}
+            {pickerOpenIdx===i&&(
+              <div style={{background:t.bg2,border:`1px solid ${t.accent}`,borderRadius:"0.5rem",marginTop:"0.3rem",boxShadow:"0 8px 24px rgba(0,0,0,0.25)",zIndex:10,position:"relative"}}>
+                <div style={{padding:"0.5rem",borderBottom:`1px solid ${t.border}`,display:"flex",gap:"0.35rem",alignItems:"center"}}>
+                  <Inp placeholder="Cerca prodotto..." value={pickerSearch} onChange={e=>setPickerSearch(e.target.value)} style={{flex:1}}/>
+                  <button type="button" onClick={()=>setShowNewCatalogForm(v=>!v)}
+                    style={{padding:"0.4rem 0.7rem",background:t.accent,border:"none",borderRadius:"0.35rem",color:t.accentText,fontWeight:700,fontSize:"0.75rem",cursor:"pointer",whiteSpace:"nowrap",fontFamily:"'DM Sans',sans-serif"}}>
+                    + Nuovo
+                  </button>
+                </div>
+                {showNewCatalogForm&&(
+                  <div style={{padding:"0.5rem",borderBottom:`1px solid ${t.border}`,display:"flex",gap:"0.35rem"}}>
+                    <Inp placeholder="Nome nuovo prodotto" value={newCatalogName} onChange={e=>setNewCatalogName(e.target.value)} style={{flex:1}}
+                      onKeyDown={e=>e.key==="Enter"&&addToCatalog()}/>
+                    <Btn onClick={addToCatalog} style={{fontSize:"0.75rem",padding:"0.35rem 0.65rem"}}>Aggiungi</Btn>
+                  </div>
+                )}
+                <div style={{maxHeight:"11rem",overflowY:"auto"}}>
+                  {filteredCatalog.length===0&&<div style={{padding:"0.75rem",color:t.text4,fontSize:"0.8rem",textAlign:"center"}}>
+                    {catalog.length===0?"Nessun prodotto nel catalogo. Creane uno con + Nuovo.":"Nessun risultato."}
+                  </div>}
+                  {filteredCatalog.map(p=>(
+                    <button key={p.id} type="button" onClick={()=>pickProduct(i,p)}
+                      style={{display:"block",width:"100%",padding:"0.5rem 0.75rem",background:"none",border:"none",borderBottom:`1px solid ${t.border}`,cursor:"pointer",textAlign:"left",color:t.text,fontSize:"0.85rem",fontFamily:"'DM Sans',sans-serif"}}>
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         ))}
-        <Btn variant="secondary" onClick={addItem}>+ Prodotto</Btn>
+        <Btn variant="secondary" onClick={addItem}>+ Riga</Btn>
       </div>
-      <Inp textarea style={{ marginTop:"0.55rem",height:"3.5rem" }} placeholder="Note (opz.)" value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/>
-      <div style={{ display:"flex",gap:"0.4rem",marginTop:"0.75rem" }}>
+      <Inp textarea style={{marginTop:"0.55rem",height:"3.5rem"}} placeholder="Note (opz.)" value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/>
+      <div style={{display:"flex",gap:"0.4rem",marginTop:"0.75rem"}}>
         <Btn onClick={submit}>{editOrder?"Aggiorna":"Salva"}</Btn>
         <Btn variant="secondary" onClick={()=>{setShowForm(false);setEditOrder(null);}}>Annulla</Btn>
       </div>
@@ -1175,24 +1276,25 @@ function Ordini() {
   );
 
   return (
-    <div style={{ maxWidth:"75rem",margin:"0 auto" }}>
+    <div style={{maxWidth:"75rem",margin:"0 auto"}}>
       <PageHeader title="🛒 Ordini"><Btn onClick={openAdd}>+ Nuovo</Btn></PageHeader>
       {showForm&&<Modal title={editOrder?"✏️ Modifica Ordine":"➕ Nuovo Ordine"} onClose={()=>{setShowForm(false);setEditOrder(null);}}>{FormContent}</Modal>}
       <FilterBtns options={[{v:"all",label:"Tutti"},{v:"active",label:"Attivi"},{v:"completed",label:"Completati"}]} value={filter} onChange={setFilter}/>
-      <div style={{ display:"flex",flexDirection:"column",gap:"0.55rem" }}>
+      <div style={{display:"flex",flexDirection:"column",gap:"0.55rem"}}>
         {filtered.map(o=>(
-          <div key={o.id} style={{ background:t.bg2,border:`1px solid ${t.border}`,borderRadius:"0.65rem",padding:"0.85rem 0.95rem",opacity:o.completed?0.65:1 }}>
-            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:"0.65rem" }}>
-              <div style={{ flex:1,minWidth:0 }}>
-                <div style={{ color:t.accent,fontWeight:700,fontSize:"0.95rem" }}>{o.supplier}</div>
-                <div style={{ color:t.text3,fontSize:"0.72rem",marginBottom:"0.4rem" }}>{o.date}{o.deadline&&` · Scad: ${o.deadline}`}</div>
-                {o.items.map((item,i)=><div key={i} style={{ color:t.text2,fontSize:"0.8rem" }}>· {item.name}{item.qty&&` (${item.qty})`}</div>)}
-                {o.notes&&<div style={{ color:t.text3,fontSize:"0.72rem",marginTop:"0.25rem" }}>{o.notes}</div>}
+          <div key={o.id} style={{background:t.bg2,border:`1px solid ${t.border}`,borderRadius:"0.65rem",padding:"0.85rem 0.95rem",opacity:o.completed?0.65:1}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:"0.65rem"}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{color:t.accent,fontWeight:700,fontSize:"0.95rem"}}>{o.supplier}</div>
+                <div style={{color:t.text3,fontSize:"0.72rem",marginBottom:"0.4rem"}}>{o.date}{o.deadline&&` · Scad: ${o.deadline}`}</div>
+                {o.items.map((item,i)=><div key={i} style={{color:t.text2,fontSize:"0.8rem"}}>· {item.name}{item.qty&&` (${item.qty})`}</div>)}
+                {o.notes&&<div style={{color:t.text3,fontSize:"0.72rem",marginTop:"0.25rem"}}>{o.notes}</div>}
               </div>
-              <div style={{ display:"flex",flexDirection:"column",gap:"0.3rem",alignItems:"flex-end",flexShrink:0 }}>
+              <div style={{display:"flex",flexDirection:"column",gap:"0.3rem",alignItems:"flex-end",flexShrink:0}}>
                 <Tag bg={o.completed?t.greenBg:t.amberBg} color={o.completed?t.green:t.amber}>{o.completed?"✓ Completato":"In attesa"}</Tag>
-                <div style={{ display:"flex",gap:"0.25rem",marginTop:"0.2rem",flexWrap:"wrap",justifyContent:"flex-end" }}>
-                  <Btn onClick={()=>toggleComplete(o.id)} style={{ fontSize:"0.72rem",padding:"0.28rem 0.55rem" }}>{o.completed?"↩ Riapri":"✓ Fatto"}</Btn>
+                <div style={{display:"flex",gap:"0.25rem",marginTop:"0.2rem",flexWrap:"wrap",justifyContent:"flex-end"}}>
+                  <Btn onClick={()=>toggleComplete(o.id)} style={{fontSize:"0.72rem",padding:"0.28rem 0.55rem"}}>{o.completed?"↩ Riapri":"✓ Fatto"}</Btn>
+                  <IconBtn onClick={()=>duplicate(o)} icon="⧉" color={t.text3} title="Duplica ordine"/>
                   <IconBtn onClick={()=>openEdit(o)} icon="✏️" color={t.blue} title="Modifica"/>
                   <IconBtn onClick={()=>remove(o.id)} icon="🗑" color={t.red} title="Elimina"/>
                 </div>
